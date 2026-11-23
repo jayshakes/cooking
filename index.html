@@ -1,0 +1,35 @@
+<div id="debug" style="font-family: sans-serif; padding: 20px; border-radius: 8px; background: #eee;">
+  Running CHIPS validation...
+</div>
+
+<script>
+  const workerUrl = 'https://chips-test.shikongo-tj.workers.dev/'; // REPLACE THIS
+  
+  async function runChipsTest() {
+    const debugBox = document.getElementById('debug');
+    
+    try {
+      // Request 1: Worker sends the 'Set-Cookie' header
+      debugBox.innerHTML = "1. Fetching to set cookie...<br>";
+      await fetch(workerUrl, { credentials: 'include' });
+      
+      // Request 2: iOS should now include the cookie in its headers
+      debugBox.innerHTML += "2. Fetching to verify storage...<br>";
+      const res = await fetch(workerUrl, { credentials: 'include' });
+      const data = await res.json();
+      
+      // Validate the result
+      if (data.echoed_cookies.includes('ios_chips_test')) {
+         debugBox.innerHTML += "<br>✅ SUCCESS: iOS stored and returned the Partitioned cookie!";
+         debugBox.style.background = "#d4edda";
+      } else {
+         debugBox.innerHTML += "<br>❌ FAILED: iOS did not return the cookie. ITP blocked it.";
+         debugBox.style.background = "#f8d7da";
+      }
+    } catch (e) {
+      debugBox.innerHTML += "<br>❌ CORS or Network Error: " + e.message;
+    }
+  }
+  
+  runChipsTest();
+</script>
