@@ -3,169 +3,160 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CHIPS Widget Validator</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <title>CHIPS iOS probe</title>
+  <style>
+    body { font: 15px/1.4 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px; background: #f4f4f5; color: #18181b; }
+    main { max-width: 520px; margin: 0 auto; }
+    section { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 0 0 8px; }
+    .meta { font-size: 12px; color: #52525b; word-break: break-all; }
+    button { font: inherit; padding: 10px 12px; margin: 4px 4px 0 0; border: 0; border-radius: 8px; background: #2563eb; color: #fff; }
+    button.secondary { background: #e4e4e7; color: #18181b; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 6px 4px; border-top: 1px solid #e4e4e7; vertical-align: top; }
+    td:first-child { font-family: ui-monospace, monospace; white-space: nowrap; }
+    .yes { color: #15803d; font-weight: 600; }
+    .no { color: #b91c1c; font-weight: 600; }
+    #verdict { font-weight: 600; }
+    #log { font: 12px/1.4 ui-monospace, monospace; white-space: pre-wrap; max-height: 320px; overflow: auto; }
+    label { font-size: 14px; }
+  </style>
 </head>
-<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+<body>
+<main>
+  <section>
+    <h1>CHIPS iOS probe</h1>
+    <div class="meta" id="env"></div>
+  </section>
 
-  <!-- Main Widget Container -->
-  <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md">
-    
-    <!-- Login View -->
-    <div id="loginView" class="block">
-      <h2 class="text-2xl font-bold mb-6 text-center text-gray-800">Login to Widget</h2>
-      <p class="text-sm text-gray-500 mb-4 text-center">Use 111, 222, 333, 444, or 555</p>
-      
-      <input type="text" id="codeInput" maxlength="3" placeholder="Enter 3-digit code" 
-             class="w-full px-4 py-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4 text-center text-xl tracking-widest">
-      
-      <button onclick="login()" id="loginBtn"
-              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200">
-        Login
-      </button>
-      <p id="errorMsg" class="text-red-500 text-center mt-4 hidden text-sm font-medium"></p>
-    </div>
+  <section>
+    <h2>Cookies the API received on the last check</h2>
+    <table>
+      <tr><td>pp_auth</td><td id="c-pp_auth">–</td><td>Partitioned, 120 s</td></tr>
+      <tr><td>pp_remember</td><td id="c-pp_remember">–</td><td>Partitioned, 90 days</td></tr>
+      <tr><td>np_control</td><td id="c-np_control">–</td><td>Not partitioned (control)</td></tr>
+    </table>
+    <p id="verdict"></p>
+  </section>
 
-    <!-- Dashboard View (Logged In) -->
-    <div id="dashboardView" class="hidden text-center">
-      <div class="text-6xl mb-4" id="userAvatar"></div>
-      <h2 class="text-2xl font-bold text-gray-800" id="userName"></h2>
-      <p class="text-md text-blue-600 font-semibold mb-6" id="userRole"></p>
-      
-      <div class="bg-gray-50 p-4 rounded-lg mb-6 border border-gray-200">
-        <p class="text-sm text-gray-500">Session Duration</p>
-        <p class="text-3xl font-mono text-gray-800 mt-1" id="durationDisplay">00:00</p>
-        <p class="text-xs text-green-600 mt-2 font-semibold">✅ CHIPS Cookie Active</p>
-      </div>
+  <section>
+    <label><input type="checkbox" id="remember" checked> Remember me (sets pp_remember)</label><br>
+    <button onclick="signIn()">Sign in</button>
+    <button onclick="check('manual check')">Check</button>
+    <button onclick="roundTrip()">Redirect round trip</button>
+    <button class="secondary" onclick="signOut()">Sign out</button>
+    <button class="secondary" onclick="clearLog()">Clear log</button>
+  </section>
 
-      <button onclick="logout()" 
-              class="w-full bg-red-100 hover:bg-red-200 text-red-600 font-bold py-3 px-4 rounded-lg transition duration-200">
-        Logout
-      </button>
-    </div>
+  <section>
+    <h2>Log (kept on this page across visits)</h2>
+    <div id="log"></div>
+  </section>
+</main>
 
-  </div>
+<script>
+  // --- FILL THIS IN before publishing (exact origin, no trailing slash) ---
+  const API_ORIGIN = 'https://chips-test.shikongo-tj.workers.dev';
 
-  <script>
-    // --- REPLACE THIS WITH YOUR WORKER URL ---
-    const WORKER_URL = 'https://chips-test.shikongo-tj.workers.dev';
-    
-    let durationInterval;
+  const LOG_KEY = 'chips-probe-log';
+  const NAMES = ['pp_auth', 'pp_remember', 'np_control'];
 
-    // Helper to format seconds into MM:SS
-    function formatTime(totalSeconds) {
-      const m = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-      const s = (totalSeconds % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
+  function fmtAge(s) {
+    if (s == null) return '';
+    if (s < 120) return s + ' s';
+    if (s < 7200) return Math.round(s / 60) + ' min';
+    if (s < 172800) return (s / 3600).toFixed(1) + ' h';
+    return (s / 86400).toFixed(1) + ' days';
+  }
+
+  function log(line) {
+    const entries = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+    entries.unshift(new Date().toISOString() + '  ' + line);
+    localStorage.setItem(LOG_KEY, JSON.stringify(entries.slice(0, 200)));
+    renderLog();
+  }
+  function renderLog() {
+    document.getElementById('log').textContent = JSON.parse(localStorage.getItem(LOG_KEY) || '[]').join('\n');
+  }
+  function clearLog() { localStorage.removeItem(LOG_KEY); renderLog(); }
+
+  function show(me) {
+    const ages = { pp_auth: me.authAgeSeconds, pp_remember: me.rememberAgeSeconds, np_control: me.controlAgeSeconds };
+    for (const n of NAMES) {
+      const got = me.received.includes(n);
+      const el = document.getElementById('c-' + n);
+      el.className = got ? 'yes' : 'no';
+      el.textContent = got ? 'received (' + fmtAge(ages[n]) + ')' : 'not received';
     }
+    const p = me.received.includes('pp_remember') || me.received.includes('pp_auth');
+    const np = me.received.includes('np_control');
+    let v;
+    if (p && !np) v = 'Partitioned cookie came back, unpartitioned control did not: partitioning is what kept it.';
+    else if (p && np) v = 'Both came back: third-party cookies are NOT being blocked, so this run proves nothing about partitioning. Check Prevent Cross-Site Tracking is on.';
+    else if (!p && np) v = 'Only the unpartitioned control came back: unexpected, record it.';
+    else v = 'Nothing came back (signed out, expired, or dropped).';
+    document.getElementById('verdict').textContent = v;
+  }
 
-    // Toggle UI views
-    function showView(view) {
-      document.getElementById('loginView').style.display = view === 'login' ? 'block' : 'none';
-      document.getElementById('dashboardView').style.display = view === 'dashboard' ? 'block' : 'none';
+  async function check(label) {
+    try {
+      const res = await fetch(API_ORIGIN + '/me', { credentials: 'include', cache: 'no-store' });
+      const me = await res.json();
+      show(me);
+      log(label + ': received [' + me.received.join(', ') + ']'
+        + (me.rememberAgeSeconds != null ? ' remember-age=' + fmtAge(me.rememberAgeSeconds) : ''));
+      return me;
+    } catch (e) {
+      log(label + ': ERROR ' + e);
     }
+  }
 
-    // Show error message
-    function showError(msg) {
-      const errEl = document.getElementById('errorMsg');
-      if (msg) {
-        errEl.innerText = msg;
-        errEl.classList.remove('hidden');
-      } else {
-        errEl.classList.add('hidden');
-      }
+  async function signIn() {
+    try {
+      const remember = document.getElementById('remember').checked;
+      const res = await fetch(API_ORIGIN + '/login', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remember }),
+      });
+      log('sign in: HTTP ' + res.status + (remember ? ' (remember on)' : ' (remember off)'));
+      await check('check after sign in');
+    } catch (e) {
+      log('sign in: ERROR ' + e);
     }
+  }
 
-    // Check if user is already logged in (reads CHIPS cookie)
-    async function checkSession() {
-      try {
-        const res = await fetch(`${WORKER_URL}/me`, { credentials: 'include' });
-        const data = await res.json();
-        
-        if (data.loggedIn) {
-          populateDashboard(data.user, data.durationSeconds);
-        } else {
-          showView('login');
-        }
-      } catch (err) {
-        console.error("Session check failed:", err);
-        showView('login');
-      }
+  async function signOut() {
+    try {
+      const res = await fetch(API_ORIGIN + '/logout', { method: 'POST', credentials: 'include' });
+      log('sign out: HTTP ' + res.status);
+      await check('check after sign out');
+    } catch (e) {
+      log('sign out: ERROR ' + e);
     }
+  }
 
-    // Handle Login
-    async function login() {
-      const code = document.getElementById('codeInput').value;
-      showError('');
-      
-      if(code.length !== 3) {
-        showError('Please enter a 3-digit code.');
-        return;
-      }
+  // Top-level navigation: page -> API Worker /bounce -> bounce site -> back here (?rt=1).
+  async function roundTrip() {
+    await check('before round trip');
+    const back = location.origin + location.pathname + '?rt=1';
+    log('round trip: leaving page');
+    location.href = API_ORIGIN + '/bounce?back=' + encodeURIComponent(back);
+  }
 
-      const btn = document.getElementById('loginBtn');
-      btn.innerText = 'Loading...';
-
-      try {
-        const res = await fetch(`${WORKER_URL}/login`, {
-          method: 'POST',
-          credentials: 'include', // Crucial for storing the CHIPS cookie
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        
-        const data = await res.json();
-        
-        if (res.ok) {
-          populateDashboard(data.user, 0); // Start at 0 seconds on fresh login
-        } else {
-          showError(data.error || 'Login failed');
-        }
-      } catch (err) {
-        showError('Network error. Check console.');
-        console.error(err);
-      } finally {
-        btn.innerText = 'Login';
-      }
+  window.onload = async () => {
+    document.getElementById('env').textContent =
+      'Page: ' + location.origin + ' · API: ' + API_ORIGIN + ' · ' + navigator.userAgent;
+    renderLog();
+    const params = new URLSearchParams(location.search);
+    if (params.get('rt') === '1') {
+      history.replaceState(null, '', location.pathname);
+      await check('AFTER round trip');
+    } else {
+      await check('page load');
     }
-
-    // Handle Logout
-    async function logout() {
-      try {
-        await fetch(`${WORKER_URL}/logout`, {
-          method: 'POST',
-          credentials: 'include' // Crucial for clearing the CHIPS cookie
-        });
-        
-        clearInterval(durationInterval);
-        document.getElementById('codeInput').value = '';
-        showView('login');
-      } catch (err) {
-        console.error("Logout failed:", err);
-      }
-    }
-
-    // Populate dashboard and start timer
-    function populateDashboard(user, startingSeconds) {
-      document.getElementById('userName').innerText = user.name;
-      document.getElementById('userRole').innerText = user.role;
-      document.getElementById('userAvatar').innerText = user.avatar;
-      
-      let currentSeconds = startingSeconds;
-      const display = document.getElementById('durationDisplay');
-      display.innerText = formatTime(currentSeconds);
-      
-      clearInterval(durationInterval);
-      durationInterval = setInterval(() => {
-        currentSeconds++;
-        display.innerText = formatTime(currentSeconds);
-      }, 1000);
-
-      showView('dashboard');
-    }
-
-    // Check session on load
-    window.onload = checkSession;
-  </script>
+  };
+</script>
 </body>
 </html>
